@@ -1,9 +1,13 @@
 import Summarize from "./pages/summarize"
+import banner from "../public/banner.png"
 function App() {
 
   return (
     <>
-      <Summarize/>
+      <img className="banner" src={banner} alt="" />
+      <div className="container">
+        <Summarize/>
+      </div>
     </>
   )
 }

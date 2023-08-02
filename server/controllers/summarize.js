@@ -3,50 +3,96 @@ const router = express.Router()
 import multer from 'multer'
 const upload = multer()
 // const pdfjs = require('pdfjs-dist');
-// import {PdfReader} from 'pdfreader'
-import PDFParser from "pdf2json";
+import { PdfReader } from 'pdfreader'
 import dotenv from 'dotenv'
-import fs from 'fs'
-dotenv.config()
+import { Configuration, OpenAIApi } from "openai";
+import { summaryModel } from '../models/summary.js'
+// console.log(process.cwd()+'/.env')
+dotenv.config({ path: `${process.cwd()}/.env` })
 
+let prompt = `I want you to act as a text summarizer and provide a concise summary of a given article or text.
+Your summary should accurately capture the main points and ideas of the original text.
+Do not include your opinions or interpretations, just the key information and also the summary must be less than the text provided.
+(Note : The text might contain parsing issues . for example there might be space between the letters of words , so make sure to remove the unnecessary spaces before summarizing.)
+The text to summarize is - `
 
-function toArrayBuffer(buffer) {
-    const arrayBuffer = new ArrayBuffer(buffer.length);
-    const view = new Uint8Array(arrayBuffer);
-    for (let i = 0; i < buffer.length; ++i) {
-      view[i] = buffer[i];
-    }
-    return arrayBuffer;
-  }
-  
-router.post("/api/pdf",upload.single('file'), async (req,res)=>{
+router.post("/api/pdf", upload.single('file'), async (req, res) => {
     console.log("request recieved");
-    console.log(req.body)
+    const { phone } = req.body;
     let filebuf = req.file.buffer;
-    // let { PdfReader } = await import("pdfreader/index.js")
-    // new PdfReader().parseBuffer(filebuf,(err,item)=>{
-    //     if(err) console.log("error : ",err)
-    //     else if(!item) console.warn("end of buffer")
-    //     else if(item.text) console.log(item.text);
-    // })
+    if (!filebuf || !phone)
+        return res.json({ error: "One of the field is empty" })
 
-    // const pdf = await pdfjs.getDocument({data : toArrayBuffer(filebuf)})
-    // console.log(pdf)
-
-    let parser = new PDFParser()
-    parser.parseBuffer(filebuf)
-    parser.on("readable", meta => console.log("PDF Metadata", meta) );
-    parser.on("data", page => console.log(page ? "One page paged" : "All pages parsed"));
-    parser.on("error", err => console.error("Parser Error", err));
-    parser.on("pdfParser_dataReady", pdfData => {
-        console.log(pdfData.Pages[0].Texts)
-        fs.writeFile("./content.txt", parser.getRawTextContent(), ()=>{console.log("Done.");});
-        console.log(parser.getRawTextContent())
+    let text = []
+    const configuration = new Configuration({
+        apiKey: process.env.API_KEY,
     });
-
-
-    res.json({message:"Request recieved sucessfully"})
+    const openai = new OpenAIApi(configuration)
+    text.push(prompt)
+    console.log(process.env.API_KEY)
+    new PdfReader().parseBuffer(filebuf, (err, item) => {
+        if (err) console.log("error : ", err)
+        else if (!item) {
+            console.warn("end of buffer")
+            let joinedText = text.join(' ')
+            console.log(joinedText)
+            try {
+                openai.createChatCompletion({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        { "role": "user", "content": joinedText }
+                    ],
+                    temperature: 1,
+                    max_tokens: 2548,
+                    top_p: 1,
+                    frequency_penalty: 0,
+                    presence_penalty: 0,
+                }).then(response => {
+                    let summary = response.data.choices[0].message.content
+                    console.log(summary)
+                    summaryModel.findOne({_id:Number(phone)})
+                    .then((savedsummary) => {
+                        console.log(err)
+                        if (savedsummary) {
+                            savedsummary.summary = summary;
+                            savedsummary.save()
+                            .then(()=>{
+                                res.json({message: summary})
+                            }).catch(err=>{
+                                console.log("error in updating"+err)
+                                res.json({error: "error in updating"})
+                            })
+                        } else {
+                            const newSummary = new summaryModel({
+                                _id: Number(phone),
+                                summary: summary
+                            })
+                            newSummary.save()
+                                .then(() => {
+                                    res.json({ message: summary })
+                                })
+                                .catch(err => {
+                                    console.log("error in saveing ", err)
+                                })
+                        }
+                    })
+                    .catch(err=>{
+                        console.log("error in finding or saving"+err)
+                        res.json({error:"error in finding or saving"})
+                    })
+                })
+            } catch (error) {
+                console.log("error occured " + error)
+                res.json({error:"something went wrong"})
+            }
+        }
+        else if (item.text) {
+            let c = item.text
+            text.push(c)
+        }
+    })
+    // text = text.replaceAll(/\n/g,' ')
 })
 
 // module.exports = router
-export default router
+export { router }
