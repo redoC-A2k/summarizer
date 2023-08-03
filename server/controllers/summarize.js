@@ -43,7 +43,7 @@ router.post("/api/pdf", upload.single('file'), async (req, res) => {
                         { "role": "user", "content": joinedText }
                     ],
                     temperature: 1,
-                    max_tokens: 2548,
+                    max_tokens: 4000,
                     top_p: 1,
                     frequency_penalty: 0,
                     presence_penalty: 0,
